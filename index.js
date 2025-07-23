@@ -9,7 +9,10 @@ app.use(cors());                                 // Allow cross-origin requests 
 app.use(express.json());                         // Automatically parse JSON in request bodies
 
 // Connect to MongoDB using the connection string in .env
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+})
   .then(() => console.log('✅ MongoDB connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
