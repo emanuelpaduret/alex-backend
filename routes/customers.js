@@ -15,15 +15,20 @@ router.get('/', async (req, res) => {
 // POST a new customer
 router.post('/', async (req, res) => {
   try {
-    const customer = new Customer(req.body); // Uses the JSON body sent from form or automation
-    await customer.save();                   // Saves to MongoDB
-    res.status(201).json(customer);          // Returns the saved customer
+    console.log('🟡 Incoming POST data:', req.body); // Log incoming data
+
+    const customer = new Customer(req.body); // Construct new customer
+    await customer.save();                   // Save to DB
+
+    console.log('✅ Customer saved:', customer); // Log saved data
+    res.status(201).json(customer);
   } catch (error) {
+    console.error('❌ Error creating customer:', error); // Log error
     res.status(400).json({ message: 'Error creating customer', error });
   }
 });
 
-// PUT: Update an existing customer (e.g., to change sales stage)
+// PUT: Update an existing customer
 router.put('/:id', async (req, res) => {
   try {
     const updated = await Customer.findByIdAndUpdate(req.params.id, req.body, { new: true });
