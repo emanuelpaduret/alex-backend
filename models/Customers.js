@@ -13,6 +13,7 @@ const customerSchema = new mongoose.Schema({
     enum: ['Initial Demand', 'Quote Sent', 'Waiting', 'Negotiation', 'Won', 'Lost'],
     default: 'Initial Demand'
   },
+  source: String,
   createdAt: {
     type: Date,
     default: Date.now
