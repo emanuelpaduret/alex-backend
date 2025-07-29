@@ -157,6 +157,214 @@ router.get('/', async (req, res) => {
 });
 
 // ========================================
+// ANALYTICS & DASHBOARD STATS
+// Provide aggregated data for dashboard views
+// ========================================
+
+/**
+ * GET /api/submissions/stats/dashboard
+ * 
+ * Get comprehensive statistics for dashboard display
+ * 
+ * Returns:
+ * - Total submissions count
+ * - Breakdown by type
+ * - Breakdown by stage
+ * - Breakdown by status
+ * - Recent submissions
+ * - Processing error statistics
+ */
+router.get('/stats/dashboard', async (req, res) => {
+  try {
+    console.log('📊 GET /api/submissions/stats/dashboard');
+    
+    // ========================================
+    // PARALLEL AGGREGATION QUERIES
+    // Run multiple aggregations simultaneously for performance
+    // ========================================
+    
+    const [
+      totalSubmissions,
+      typeStats,
+      stageStats,
+      statusStats,
+      recentSubmissions,
+      errorStats,
+      priorityStats
+    ] = await Promise.all([
+      
+      // Total count
+      Submission.countDocuments(),
+      
+      // Group by submission type
+      Submission.aggregate([
+        {
+          $group: {
+            _id: '$submissionType',
+            count: { $sum: 1 },
+            latestSubmission: { $max: '$createdAt' }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]),
+      
+      // Group by stage
+      Submission.aggregate([
+        {
+          $group: {
+            _id: '$stage',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]),
+      
+      // Group by status
+      Submission.aggregate([
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]),
+      
+      // Get 5 most recent submissions
+      Submission.find()
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('name email submissionType stage status createdAt'),
+      
+      // Count submissions with processing errors
+      Submission.aggregate([
+        {
+          $match: {
+            'metadata.processingErrors.0': { $exists: true }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalWithErrors: { $sum: 1 },
+            commonErrors: { $push: '$metadata.processingErrors' }
+          }
+        }
+      ]),
+      
+      // Group by priority
+      Submission.aggregate([
+        {
+          $group: {
+            _id: '$priority',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ])
+    ]);
+    
+    // ========================================
+    // CALCULATE ADDITIONAL METRICS
+    // ========================================
+    
+    const today = new Date();
+    const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    const submissionsThisWeek = await Submission.countDocuments({
+      createdAt: { $gte: oneWeekAgo }
+    });
+    
+    // Calculate error rate
+    const errorCount = errorStats[0]?.totalWithErrors || 0;
+    const errorRate = totalSubmissions > 0 ? (errorCount / totalSubmissions * 100).toFixed(2) : 0;
+    
+    console.log('✅ Dashboard stats calculated');
+    console.log(`📊 Total: ${totalSubmissions}, This week: ${submissionsThisWeek}, Error rate: ${errorRate}%`);
+    
+    // ========================================
+    // RETURN COMPREHENSIVE STATS
+    // ========================================
+    
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          totalSubmissions,
+          submissionsThisWeek,
+          errorRate: parseFloat(errorRate),
+          submissionsWithErrors: errorCount
+        },
+        breakdowns: {
+          byType: typeStats,
+          byStage: stageStats,
+          byStatus: statusStats,
+          byPriority: priorityStats
+        },
+        recent: recentSubmissions,
+        performance: {
+          errorRate: parseFloat(errorRate),
+          totalWithErrors: errorCount
+        },
+        lastUpdated: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching dashboard stats:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching dashboard statistics', 
+      error: error.message 
+    });
+  }
+});
+
+// ========================================
+// GET SUBMISSIONS BY TYPE
+// Convenience endpoint for filtering by submission type
+// ========================================
+
+/**
+ * GET /api/submissions/type/:type
+ * 
+ * Get all submissions of a specific type
+ * Types: moving, contact, quote, service_request, other
+ * 
+ * Examples:
+ * GET /api/submissions/type/moving
+ * GET /api/submissions/type/contact
+ */
+router.get('/type/:type', async (req, res) => {
+  try {
+    console.log(`🔍 GET /api/submissions/type/${req.params.type}`);
+    
+    const submissions = await Submission.find({ 
+      submissionType: req.params.type 
+    }).sort({ createdAt: -1 });
+    
+    console.log(`✅ Found ${submissions.length} ${req.params.type} submissions`);
+    
+    res.json({
+      success: true,
+      data: {
+        submissions,
+        type: req.params.type,
+        count: submissions.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching submissions by type:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching submissions by type', 
+      error: error.message 
+    });
+  }
+});
+
+// ========================================
 // GET SINGLE SUBMISSION
 // Retrieve a specific submission by ID
 // ========================================
@@ -495,214 +703,6 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: 'Error deleting submission', 
-      error: error.message 
-    });
-  }
-});
-
-// ========================================
-// GET SUBMISSIONS BY TYPE
-// Convenience endpoint for filtering by submission type
-// ========================================
-
-/**
- * GET /api/submissions/type/:type
- * 
- * Get all submissions of a specific type
- * Types: moving, contact, quote, service_request, other
- * 
- * Examples:
- * GET /api/submissions/type/moving
- * GET /api/submissions/type/contact
- */
-router.get('/type/:type', async (req, res) => {
-  try {
-    console.log(`🔍 GET /api/submissions/type/${req.params.type}`);
-    
-    const submissions = await Submission.find({ 
-      submissionType: req.params.type 
-    }).sort({ createdAt: -1 });
-    
-    console.log(`✅ Found ${submissions.length} ${req.params.type} submissions`);
-    
-    res.json({
-      success: true,
-      data: {
-        submissions,
-        type: req.params.type,
-        count: submissions.length
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching submissions by type:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Error fetching submissions by type', 
-      error: error.message 
-    });
-  }
-});
-
-// ========================================
-// ANALYTICS & DASHBOARD STATS
-// Provide aggregated data for dashboard views
-// ========================================
-
-/**
- * GET /api/submissions/stats/dashboard
- * 
- * Get comprehensive statistics for dashboard display
- * 
- * Returns:
- * - Total submissions count
- * - Breakdown by type
- * - Breakdown by stage
- * - Breakdown by status
- * - Recent submissions
- * - Processing error statistics
- */
-router.get('/stats/dashboard', async (req, res) => {
-  try {
-    console.log('📊 GET /api/submissions/stats/dashboard');
-    
-    // ========================================
-    // PARALLEL AGGREGATION QUERIES
-    // Run multiple aggregations simultaneously for performance
-    // ========================================
-    
-    const [
-      totalSubmissions,
-      typeStats,
-      stageStats,
-      statusStats,
-      recentSubmissions,
-      errorStats,
-      priorityStats
-    ] = await Promise.all([
-      
-      // Total count
-      Submission.countDocuments(),
-      
-      // Group by submission type
-      Submission.aggregate([
-        {
-          $group: {
-            _id: '$submissionType',
-            count: { $sum: 1 },
-            latestSubmission: { $max: '$createdAt' }
-          }
-        },
-        { $sort: { count: -1 } }
-      ]),
-      
-      // Group by stage
-      Submission.aggregate([
-        {
-          $group: {
-            _id: '$stage',
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { count: -1 } }
-      ]),
-      
-      // Group by status
-      Submission.aggregate([
-        {
-          $group: {
-            _id: '$status',
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { count: -1 } }
-      ]),
-      
-      // Get 5 most recent submissions
-      Submission.find()
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .select('name email submissionType stage status createdAt'),
-      
-      // Count submissions with processing errors
-      Submission.aggregate([
-        {
-          $match: {
-            'metadata.processingErrors.0': { $exists: true }
-          }
-        },
-        {
-          $group: {
-            _id: null,
-            totalWithErrors: { $sum: 1 },
-            commonErrors: { $push: '$metadata.processingErrors' }
-          }
-        }
-      ]),
-      
-      // Group by priority
-      Submission.aggregate([
-        {
-          $group: {
-            _id: '$priority',
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { count: -1 } }
-      ])
-    ]);
-    
-    // ========================================
-    // CALCULATE ADDITIONAL METRICS
-    // ========================================
-    
-    const today = new Date();
-    const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
-    const submissionsThisWeek = await Submission.countDocuments({
-      createdAt: { $gte: oneWeekAgo }
-    });
-    
-    // Calculate error rate
-    const errorCount = errorStats[0]?.totalWithErrors || 0;
-    const errorRate = totalSubmissions > 0 ? (errorCount / totalSubmissions * 100).toFixed(2) : 0;
-    
-    console.log('✅ Dashboard stats calculated');
-    console.log(`📊 Total: ${totalSubmissions}, This week: ${submissionsThisWeek}, Error rate: ${errorRate}%`);
-    
-    // ========================================
-    // RETURN COMPREHENSIVE STATS
-    // ========================================
-    
-    res.json({
-      success: true,
-      data: {
-        overview: {
-          totalSubmissions,
-          submissionsThisWeek,
-          errorRate: parseFloat(errorRate),
-          submissionsWithErrors: errorCount
-        },
-        breakdowns: {
-          byType: typeStats,
-          byStage: stageStats,
-          byStatus: statusStats,
-          byPriority: priorityStats
-        },
-        recent: recentSubmissions,
-        performance: {
-          errorRate: parseFloat(errorRate),
-          totalWithErrors: errorCount
-        },
-        lastUpdated: new Date().toISOString()
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fetching dashboard stats:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Error fetching dashboard statistics', 
       error: error.message 
     });
   }
