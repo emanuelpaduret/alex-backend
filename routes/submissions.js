@@ -14,13 +14,14 @@
  * 
  * Route Structure:
  * GET    /api/submissions           - Get all submissions with filtering
+ * GET    /api/submissions/stats/dashboard - Get analytics data
+ * GET    /api/submissions/type/:type - Get submissions by type
  * GET    /api/submissions/:id       - Get specific submission
  * POST   /api/submissions           - Create new submission
  * PUT    /api/submissions/:id       - Update entire submission
  * PATCH  /api/submissions/:id/status - Update status/stage only
  * DELETE /api/submissions/:id       - Delete submission
- * GET    /api/submissions/type/:type - Get submissions by type
- * GET    /api/submissions/stats/dashboard - Get analytics data
+ * PATCH  /api/submissions/bulk/status - Bulk update submissions
  */
 
 const express = require('express');
@@ -159,6 +160,7 @@ router.get('/', async (req, res) => {
 // ========================================
 // ANALYTICS & DASHBOARD STATS
 // Provide aggregated data for dashboard views
+// IMPORTANT: This route must come BEFORE /:id route
 // ========================================
 
 /**
@@ -323,6 +325,7 @@ router.get('/stats/dashboard', async (req, res) => {
 // ========================================
 // GET SUBMISSIONS BY TYPE
 // Convenience endpoint for filtering by submission type
+// IMPORTANT: This route must come BEFORE /:id route
 // ========================================
 
 /**
@@ -365,8 +368,75 @@ router.get('/type/:type', async (req, res) => {
 });
 
 // ========================================
+// BULK OPERATIONS
+// Handle multiple submissions at once
+// IMPORTANT: This route must come BEFORE /:id route
+// ========================================
+
+/**
+ * PATCH /api/submissions/bulk/status
+ * 
+ * Update status/stage for multiple submissions at once
+ * 
+ * Request Body:
+ * {
+ *   "ids": ["id1", "id2", "id3"],
+ *   "updates": { "stage": "Quote Sent", "status": "in_progress" }
+ * }
+ */
+router.patch('/bulk/status', async (req, res) => {
+  try {
+    console.log('🔄 PATCH /api/submissions/bulk/status');
+    
+    const { ids, updates } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'IDs array is required'
+      });
+    }
+    
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Updates object is required'
+      });
+    }
+    
+    // Add updatedAt to the updates
+    updates.updatedAt = new Date();
+    
+    const result = await Submission.updateMany(
+      { _id: { $in: ids } },
+      { $set: updates }
+    );
+    
+    console.log(`✅ Bulk update completed: ${result.modifiedCount} submissions updated`);
+    
+    res.json({
+      success: true,
+      message: `${result.modifiedCount} submissions updated successfully`,
+      data: {
+        matched: result.matchedCount,
+        modified: result.modifiedCount
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in bulk status update:', error);
+    res.status(400).json({
+      success: false,
+      message: 'Error updating submissions',
+      error: error.message
+    });
+  }
+});
+
+// ========================================
 // GET SINGLE SUBMISSION
 // Retrieve a specific submission by ID
+// IMPORTANT: This route must come AFTER all specific routes
 // ========================================
 
 /**
@@ -704,71 +774,6 @@ router.delete('/:id', async (req, res) => {
       success: false,
       message: 'Error deleting submission', 
       error: error.message 
-    });
-  }
-});
-
-// ========================================
-// BULK OPERATIONS
-// Handle multiple submissions at once
-// ========================================
-
-/**
- * PATCH /api/submissions/bulk/status
- * 
- * Update status/stage for multiple submissions at once
- * 
- * Request Body:
- * {
- *   "ids": ["id1", "id2", "id3"],
- *   "updates": { "stage": "Quote Sent", "status": "in_progress" }
- * }
- */
-router.patch('/bulk/status', async (req, res) => {
-  try {
-    console.log('🔄 PATCH /api/submissions/bulk/status');
-    
-    const { ids, updates } = req.body;
-    
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'IDs array is required'
-      });
-    }
-    
-    if (!updates || Object.keys(updates).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Updates object is required'
-      });
-    }
-    
-    // Add updatedAt to the updates
-    updates.updatedAt = new Date();
-    
-    const result = await Submission.updateMany(
-      { _id: { $in: ids } },
-      { $set: updates }
-    );
-    
-    console.log(`✅ Bulk update completed: ${result.modifiedCount} submissions updated`);
-    
-    res.json({
-      success: true,
-      message: `${result.modifiedCount} submissions updated successfully`,
-      data: {
-        matched: result.matchedCount,
-        modified: result.modifiedCount
-      }
-    });
-    
-  } catch (error) {
-    console.error('❌ Error in bulk status update:', error);
-    res.status(400).json({
-      success: false,
-      message: 'Error updating submissions',
-      error: error.message
     });
   }
 });
