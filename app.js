@@ -249,6 +249,21 @@ console.log('🛣️  Routes mounted: /api/submissions');
 // Provide endpoints for monitoring and load balancer health checks
 // ========================================
 
+// Simple API key authentication middleware
+const checkApiKey = (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  
+  if (!apiKey || apiKey !== process.env.API_KEY) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized - Invalid or missing API key'
+    });
+  }
+  
+  // If we get here, the API key is valid
+  next();
+};
+
 /**
  * Basic Health Check
  * Optimized for Render's health check system

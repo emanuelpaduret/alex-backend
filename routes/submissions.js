@@ -504,7 +504,23 @@ router.get('/:id', async (req, res) => {
  * - Creates timestamps
  * - Assigns priority based on content
  */
-router.post('/', async (req, res) => {
+
+const checkApiKey = (req, res, next) => {
+  const apiKey = req.headers['x-api-key'];
+  
+  if (!apiKey || apiKey !== process.env.API_KEY) {
+    console.log('❌ Unauthorized API request - Invalid or missing API key');
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized - Invalid or missing API key'
+    });
+  }
+  
+  console.log('✅ Valid API key provided');
+  next();
+};
+
+router.post('/', checkApiKey, async (req, res) => {
   try {
     console.log('📧 POST /api/submissions - Incoming submission data:');
     console.log('📧 Name:', req.body.name);
